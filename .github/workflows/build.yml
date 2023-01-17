@@ -1,0 +1,127 @@
+name: build
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    name: Build
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            builds-on: linux/amd64
+            runs-on: linux/amd64
+          - arch: ia32
+            builds-on: linux/amd64
+            runs-on: linux/386
+          - arch: arm64
+            builds-on: linux/arm64
+            runs-on: linux/arm64
+          - arch: arm
+            builds-on: linux/amd64
+            runs-on: linux/arm/v7
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: 'sass/dart-sass'
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && github.ref || '' }}
+
+      - name: Configure
+        id: configure
+        run: |
+          NAME=${NAME:-$(yq .name pubspec.yaml)}
+          VERSION=${VERSION:-$(yq .version pubspec.yaml)}
+          ARCHIVE=$NAME-$VERSION-linux-${{ matrix.arch }}.tar.gz
+          echo "name=$NAME" | tee -a $GITHUB_OUTPUT
+          echo "version=$VERSION" | tee -a $GITHUB_OUTPUT
+          echo "archive=$ARCHIVE" | tee -a $GITHUB_OUTPUT
+        env:
+          NAME: dart-sass
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Build
+        run: |
+          docker run --rm -i \
+                     --platform ${{ matrix.builds-on }} \
+                     --volume $PWD:$PWD \
+                     --workdir $PWD \
+                     ghcr.io/dart-musl/dart <<'EOF'
+          set -e
+          dart pub get
+          dart run grinder pkg-standalone-linux-${{ matrix.arch }}
+          EOF
+
+      - name: Fix Dart Runtime
+        if: matrix.builds-on != matrix.runs-on
+        run: |
+          docker run --rm -i \
+                     --platform ${{ matrix.runs-on }} \
+                     --volume $PWD:$PWD \
+                     --workdir $PWD \
+                     ghcr.io/dart-musl/dart <<'EOF'
+          set -e
+          cd build
+          tar -xzf ${{ steps.configure.outputs.archive }}
+          cp $DART_SDK/bin/dart ${{ steps.configure.outputs.name }}/src/dart
+          tar -czf ${{ steps.configure.outputs.archive }} ${{ steps.configure.outputs.name }}
+          EOF
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-${{ matrix.arch }}
+          path: build/${{ steps.configure.outputs.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+
+    if: github.event.repository.fork == false && startsWith(github.ref, 'refs/tags/')
+
+    needs: [build]
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-x64
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-ia32
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-arm64
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build-arm
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.tar.gz
