@@ -23,7 +23,7 @@ jobs:
             builds-on: linux/amd64
             runs-on: linux/amd64
           - arch: ia32
-            builds-on: linux/amd64
+            builds-on: linux/386
             runs-on: linux/386
           - arch: arm64
             builds-on: linux/arm64
