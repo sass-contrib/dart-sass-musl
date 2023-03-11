@@ -20,17 +20,13 @@ jobs:
       matrix:
         include:
           - arch: x64
-            builds-on: linux/amd64
-            runs-on: linux/amd64
+            platform: linux/amd64
           - arch: ia32
-            builds-on: linux/386
-            runs-on: linux/386
+            platform: linux/386
           - arch: arm64
-            builds-on: linux/arm64
-            runs-on: linux/arm64
+            platform: linux/arm64
           - arch: arm
-            builds-on: linux/amd64
-            runs-on: linux/arm/v7
+            platform: linux/arm/v7
 
     steps:
       - uses: actions/checkout@v3
@@ -38,25 +34,13 @@ jobs:
           repository: 'sass/dart-sass'
           ref: ${{ startsWith(github.ref, 'refs/tags/') && github.ref || '' }}
 
-      - name: Configure
-        id: configure
-        run: |
-          NAME=${NAME:-$(yq .name pubspec.yaml)}
-          VERSION=${VERSION:-$(yq .version pubspec.yaml)}
-          ARCHIVE=$NAME-$VERSION-linux-${{ matrix.arch }}.tar.gz
-          echo "name=$NAME" | tee -a $GITHUB_OUTPUT
-          echo "version=$VERSION" | tee -a $GITHUB_OUTPUT
-          echo "archive=$ARCHIVE" | tee -a $GITHUB_OUTPUT
-        env:
-          NAME: dart-sass
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
       - name: Build
         run: |
           docker run --rm -i \
-                     --platform ${{ matrix.builds-on }} \
+                     --platform ${{ matrix.arch == 'arm' && 'linux/amd64' || matrix.platform }} \
                      --volume $PWD:$PWD \
                      --workdir $PWD \
                      ghcr.io/dart-musl/dart <<'EOF'
@@ -66,25 +50,27 @@ jobs:
           EOF
 
       - name: Fix Dart Runtime
-        if: matrix.builds-on != matrix.runs-on
+        if: matrix.arch == 'arm'
         run: |
           docker run --rm -i \
-                     --platform ${{ matrix.runs-on }} \
+                     --platform ${{ matrix.platform }} \
                      --volume $PWD:$PWD \
                      --workdir $PWD \
                      ghcr.io/dart-musl/dart <<'EOF'
           set -e
+          apk add --no-cache tar
           cd build
-          tar -xzf ${{ steps.configure.outputs.archive }}
-          cp $DART_SDK/bin/dart ${{ steps.configure.outputs.name }}/src/dart
-          tar -czf ${{ steps.configure.outputs.archive }} ${{ steps.configure.outputs.name }}
+          DART_RUNTIME=$(tar -tzf *.tar.gz --wildcards "*/src/dart")
+          tar -xzf *.tar.gz
+          cp $DART_SDK/bin/dart $DART_RUNTIME
+          tar -czf *.tar.gz "$(dirname "$(dirname "$DART_RUNTIME")")"
           EOF
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3
         with:
           name: build-${{ matrix.arch }}
-          path: build/${{ steps.configure.outputs.archive }}
+          path: build/*.tar.gz
           if-no-files-found: error
 
   release:
