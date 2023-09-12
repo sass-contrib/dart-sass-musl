@@ -35,7 +35,7 @@ jobs:
           ref: ${{ startsWith(github.ref, 'refs/tags/') && github.ref || '' }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Compile Protobuf
         run: |
