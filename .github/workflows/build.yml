@@ -26,7 +26,7 @@ jobs:
           - arch: arm64
             platform: linux/arm64
           - arch: arm
-            platform: linux/arm/v7
+            platform: linux/amd64
 
     steps:
       - uses: actions/checkout@v4
@@ -58,24 +58,7 @@ jobs:
                      ghcr.io/dart-musl/dart <<'EOF'
           set -e
           dart pub get
-          dart run grinder pkg-standalone-linux-${{ matrix.arch }}
-          EOF
-
-      - name: Fix Dart Runtime
-        if: matrix.arch == 'arm'
-        run: |
-          docker run --rm -i \
-                     --platform ${{ matrix.platform }} \
-                     --volume $PWD:$PWD \
-                     --workdir $PWD \
-                     ghcr.io/dart-musl/dart <<'EOF'
-          set -e
-          apk add --no-cache tar
-          cd build
-          DART_RUNTIME=$(tar -tzf *.tar.gz --wildcards "*/src/dart")
-          tar -xzf *.tar.gz
-          cp $DART_SDK/bin/dart $DART_RUNTIME
-          tar -czf *.tar.gz "$(dirname "$(dirname "$DART_RUNTIME")")"
+          dart run grinder pkg-standalone-linux-${{ matrix.arch }}-musl
           EOF
 
       - name: Upload Artifact
